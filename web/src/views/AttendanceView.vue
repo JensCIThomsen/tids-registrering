@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import { session, logout } from '../services/auth';
 import {
@@ -20,6 +20,38 @@ const userId = computed(() => session.value?.id || '');
 const role = computed(() => session.value?.role || null);
 
 const KEY = 'tdtr_session';
+
+const prettyStatus = computed(() => {
+	const s = status.value?.status ?? null;
+	if (s === 'MOEDT') return 'Mødt';
+	if (s === 'PAUSE_START') return 'På pause';
+	if (s === 'PAUSE_END') return 'Mødt';
+	if (s === 'GAAET') return 'Gået';
+	return 'Ingen status';
+});
+
+let refreshTimer = null;
+
+function startAutoRefresh() {
+	if (refreshTimer) clearInterval(refreshTimer);
+
+	refreshTimer = setInterval(async () => {
+		// undgå spam mens bruger klikker
+		if (busy.value) return;
+
+		// hvis token er væk, så redirect (failsafe)
+		if (!ensureTokenOrRedirect()) return;
+
+		// hent status (kun hvis vi har user)
+		if (!userId.value) return;
+
+		try {
+			status.value = await getStatus(userId.value);
+		} catch {
+			// ignorer transient fejl her – brugeren kan stadig klikke knapper
+		}
+	}, 10000);
+}
 
 function ensureTokenOrRedirect() {
 	const raw = localStorage.getItem(KEY);
@@ -46,16 +78,16 @@ function ensureTokenOrRedirect() {
 	return true;
 }
 
-function getAccessTokenOrNull() {
-	try {
-		const raw = localStorage.getItem(KEY);
-		if (!raw) return null;
-		const s = JSON.parse(raw);
-		return s?.accessToken ?? null;
-	} catch {
-		return null;
-	}
-}
+// function getAccessTokenOrNull() {
+// 	try {
+// 		const raw = localStorage.getItem(KEY);
+// 		if (!raw) return null;
+// 		const s = JSON.parse(raw);
+// 		return s?.accessToken ?? null;
+// 	} catch {
+// 		return null;
+// 	}
+// }
 
 function stateKey() {
 	const s = status.value?.status ?? null;
@@ -145,51 +177,54 @@ async function onGaaet() {
 	}
 }
 
-async function postWithToken(path) {
-	if (!ensureTokenOrRedirect()) return null;
+// async function postWithToken(path) {
+// 	if (!ensureTokenOrRedirect()) return null;
 
-	const token = getAccessTokenOrNull();
-	if (!token) {
-		logout();
-		router.push('/login');
-		return null;
-	}
+// 	const token = getAccessTokenOrNull();
+// 	if (!token) {
+// 		logout();
+// 		router.push('/login');
+// 		return null;
+// 	}
 
-	const res = await fetch(path, {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${token}`,
-		},
-	});
+// 	const res = await fetch(path, {
+// 		method: 'POST',
+// 		headers: {
+// 			Authorization: `Bearer ${token}`,
+// 		},
+// 	});
 
-	let data = null;
-	try {
-		data = await res.json();
-	} catch {
-		data = null;
-	}
+// 	let data = null;
+// 	try {
+// 		data = await res.json();
+// 	} catch {
+// 		data = null;
+// 	}
 
-	if (!res.ok) {
-		error.value = data?.message ?? `Fejl (${res.status})`;
-		return null;
-	}
+// 	if (!res.ok) {
+// 		error.value = data?.message ?? `Fejl (${res.status})`;
+// 		return null;
+// 	}
 
-	if (data?.ok === false) {
-		error.value = data?.error ?? 'Ukendt fejl';
-		return null;
-	}
+// 	if (data?.ok === false) {
+// 		error.value = data?.error ?? 'Ukendt fejl';
+// 		return null;
+// 	}
 
-	return data;
-}
+// 	return data;
+// }
 
 async function onPauseStart() {
 	error.value = '';
 
+	if (!ensureTokenOrRedirect()) return;
+
 	busy.value = true;
 	try {
-		await postWithToken('/attendance/pause/start');
 		await pauseStart();
 		status.value = await getStatus(userId.value);
+	} catch (e) {
+		error.value = e?.response?.data?.message ?? e?.message ?? 'Fejl';
 	} finally {
 		busy.value = false;
 	}
@@ -198,20 +233,28 @@ async function onPauseStart() {
 async function onPauseEnd() {
 	error.value = '';
 
+	if (!ensureTokenOrRedirect()) return;
+
 	busy.value = true;
 	try {
-		await postWithToken('/attendance/pause/end');
 		await pauseEnd();
 		status.value = await getStatus(userId.value);
+	} catch (e) {
+		error.value = e?.response?.data?.message ?? e?.message ?? 'Fejl';
 	} finally {
 		busy.value = false;
 	}
 }
 
+onBeforeUnmount(() => {
+	if (refreshTimer) clearInterval(refreshTimer);
+});
+
 onMounted(async () => {
 	if (!ensureTokenOrRedirect()) return;
 	if (!userId.value) return;
 	await hentStatus();
+	startAutoRefresh();
 });
 </script>
 
@@ -247,14 +290,6 @@ onMounted(async () => {
 
 			<div class="actions">
 				<button
-					class="btn"
-					@click="hentStatus"
-					:disabled="busy || !userId"
-				>
-					Hent status
-				</button>
-
-				<button
 					class="btn primary"
 					@click="onMoedt"
 					:disabled="busy || !userId || !canMoedt"
@@ -288,9 +323,25 @@ onMounted(async () => {
 			</div>
 
 			<div class="info">
-				<pre v-if="status" class="json">{{
-					JSON.stringify(status, null, 2)
-				}}</pre>
+				<div v-if="status" class="statusLine">
+					<div class="statusRow">
+						<span class="label">Status</span>
+						<span class="value">{{ prettyStatus }}</span>
+					</div>
+
+					<div class="statusRow">
+						<span class="label">Tidspunkt</span>
+						<span class="value">
+							{{
+								status.at
+									? new Date(status.at).toLocaleString(
+											'da-DK',
+										)
+									: '-'
+							}}
+						</span>
+					</div>
+				</div>
 
 				<p v-if="error" class="error">{{ error }}</p>
 			</div>
@@ -347,27 +398,33 @@ h2 {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	padding: 8px 12px;
+
+	padding: 8px 14px;
 	border-radius: 999px;
-	font-weight: 700;
+
+	font-weight: 800;
 	font-size: 13px;
-	border: 1px solid #ddd;
-	background: #f7f7f7;
+	letter-spacing: 0.02em;
+
+	border: 1px solid transparent;
 }
 
 .badge[data-state='present'] {
-	border-color: #b9e4c9;
-	background: #eefbf3;
+	background: #dcfce7;
+	border-color: #22c55e;
+	color: #065f46;
 }
 
 .badge[data-state='paused'] {
-	border-color: #ffe4b3;
-	background: #fff7ea;
+	background: #ffedd5;
+	border-color: #f59e0b;
+	color: #92400e;
 }
 
 .badge[data-state='left'] {
-	border-color: #ffb7b7;
-	background: #fff0f0;
+	background: #fee2e2;
+	border-color: #ef4444;
+	color: #7f1d1d;
 }
 
 .time {
@@ -384,12 +441,19 @@ h2 {
 }
 
 .btn {
-	border: 1px solid #dedede;
-	background: #fafafa;
+	border: 1px solid #d1d5db;
+	background: #f3f4f6;
+	color: #111827;
+
 	padding: 12px 12px;
 	border-radius: 12px;
 	cursor: pointer;
 	font-weight: 700;
+
+	transition:
+		background 0.15s ease,
+		color 0.15s ease,
+		opacity 0.15s ease;
 }
 
 .btn:hover:enabled {
@@ -397,7 +461,11 @@ h2 {
 }
 
 .btn:disabled {
-	opacity: 0.55;
+	background: #e5e7eb;
+	border-color: #d1d5db;
+	color: #9ca3af;
+
+	opacity: 1;
 	cursor: not-allowed;
 }
 
@@ -407,13 +475,26 @@ h2 {
 	color: #fff;
 }
 
+.btn.primary:disabled {
+	background: #9ca3af;
+	border-color: #9ca3af;
+	color: #f9fafb;
+}
+
 .btn.primary:hover:enabled {
 	background: #000;
 }
 
 .btn.danger {
-	background: #fff5f5;
-	border-color: #ffcccc;
+	background: #fee2e2;
+	border-color: #fca5a5;
+	color: #991b1b;
+}
+
+.btn.danger:disabled {
+	background: #f3f4f6;
+	border-color: #e5e7eb;
+	color: #9ca3af;
 }
 
 .info {
@@ -454,5 +535,29 @@ h2 {
 	.header {
 		flex-direction: column;
 	}
+}
+
+.statusLine {
+	background: #f4f6f8;
+	border: 1px solid #d0d7de;
+	border-radius: 12px;
+	padding: 14px;
+}
+
+.statusRow {
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 6px 0;
+}
+
+.label {
+	color: #6b7280;
+	font-weight: 700;
+}
+
+.value {
+	color: #111827;
+	font-weight: 800;
 }
 </style>
