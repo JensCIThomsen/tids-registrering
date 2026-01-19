@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// prisma/schema.prisma
+datasource db {
+  provider  = "postgresql"
+}
+
+enum Role {
+	SUPERADMIN
+	COMPANY_ADMIN
+	EMPLOYEE
+}
+
+enum AttendanceType {
+	MOEDT
+	GAAET
+	PAUSE_START
+	PAUSE_END
+}
+
+model Company {
+	id        String   @id @default(cuid())
+	name      String
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
+
+	users     User[]
+}
+
+model User {
+	id        String   @id @default(cuid())
+	email     String   @unique
+	name      String?
+	role      Role     @default(EMPLOYEE)
+
+	companyId String
+	company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
+
+	attendance Attendance[]
+	passwordHash String?
+
+}
+
+model Attendance {
+	id        String         @id @default(cuid())
+	type      AttendanceType
+	at        DateTime       @default(now())
+
+	userId    String
+	user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+	// hjælper queries: "seneste event for user"
+	@@index([userId, at])
+}
