@@ -5,12 +5,12 @@ import { AttendanceController } from './attendance.controller';
 import { JwtGuard } from '../auth/jwt.guard';
 
 @Module({
-  imports: [
-    JwtModule.register({
-      secret: 'dev-secret-change-later',
-    }),
-  ],
-  controllers: [AttendanceController],
-  providers: [PrismaService, JwtGuard],
+	imports: [
+		JwtModule.register({
+			secret: 'dev-secret-change-later',
+		}),
+	],
+	controllers: [AttendanceController],
+	providers: [PrismaService, JwtGuard],
 })
 export class AttendanceModule {}

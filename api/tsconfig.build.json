@@ -1,12 +1,23 @@
+// {
+// 	"extends": "./tsconfig.json",
+// 	"compilerOptions": {
+// 		"rootDir": "./src",
+// 		"outDir": "./dist",
+// 		"module": "commonjs",
+// 		"moduleResolution": "node",
+// 		"declaration": false,
+// 		"sourceMap": true
+// 	},
+// 	"exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
+// }
 {
 	"extends": "./tsconfig.json",
 	"compilerOptions": {
 		"rootDir": "./src",
 		"outDir": "./dist",
-		"module": "commonjs",
-		"moduleResolution": "node",
 		"declaration": false,
-		"sourceMap": true
+		"sourceMap": true,
+		"incremental": false
 	},
 	"exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

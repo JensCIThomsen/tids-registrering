@@ -34,6 +34,13 @@ model User {
 	email     String   @unique
 	name      String?
 	role      Role     @default(EMPLOYEE)
+	isDepartmentLeader	Boolean	@default(false)
+	managerId			String?
+	manager				User?	@relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
+	employees			User[]	@relation("UserManager")
+
+	@@index([companyId, isDepartmentLeader])
+	@@index([managerId])
 
 	companyId String
 	company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
