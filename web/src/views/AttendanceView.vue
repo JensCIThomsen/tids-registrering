@@ -18,6 +18,8 @@ const busy = ref(false);
 
 const userId = computed(() => session.value?.id || '');
 const role = computed(() => session.value?.role || null);
+const isCompanyAdmin = computed(() => role.value === 'COMPANY_ADMIN');
+const isEmployee = computed(() => role.value === 'EMPLOYEE');
 
 const KEY = 'tdtr_session';
 
@@ -30,7 +32,42 @@ const prettyStatus = computed(() => {
 	return 'Ingen status';
 });
 
+const lastUpdatedAt = ref(null);
+const liveSeconds = ref(0);
+let liveTimer = null;
+
 let refreshTimer = null;
+
+function startLiveTimer(fromDate) {
+	stopLiveTimer();
+
+	if (!fromDate) return;
+
+	const start = new Date(fromDate).getTime();
+
+	liveTimer = setInterval(() => {
+		liveSeconds.value = Math.floor((Date.now() - start) / 1000);
+	}, 1000);
+}
+
+function stopLiveTimer() {
+	if (liveTimer) {
+		clearInterval(liveTimer);
+		liveTimer = null;
+	}
+	liveSeconds.value = 0;
+}
+
+function formatDuration(sec) {
+	const h = Math.floor(sec / 3600);
+	const m = Math.floor((sec % 3600) / 60);
+	const s = sec % 60;
+
+	if (h > 0) {
+		return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+	}
+	return `${m}:${String(s).padStart(2, '0')}`;
+}
 
 function startAutoRefresh() {
 	if (refreshTimer) clearInterval(refreshTimer);
@@ -47,6 +84,15 @@ function startAutoRefresh() {
 
 		try {
 			status.value = await getStatus(userId.value);
+			if (
+				status.value?.status === 'MOEDT' ||
+				status.value?.status === 'PAUSE_START'
+			) {
+				startLiveTimer(status.value.at);
+			} else {
+				stopLiveTimer();
+			}
+			lastUpdatedAt.value = new Date();
 		} catch {
 			// ignorer transient fejl her – brugeren kan stadig klikke knapper
 		}
@@ -140,6 +186,15 @@ async function hentStatus() {
 
 	try {
 		status.value = await getStatus(userId.value);
+		if (
+			status.value?.status === 'MOEDT' ||
+			status.value?.status === 'PAUSE_START'
+		) {
+			startLiveTimer(status.value.at);
+		} else {
+			stopLiveTimer();
+		}
+		lastUpdatedAt.value = new Date();
 	} catch (e) {
 		error.value = e?.response?.data?.message ?? e?.message ?? 'Fejl';
 	}
@@ -153,6 +208,7 @@ async function onMoedt() {
 	busy.value = true;
 	try {
 		await moedT();
+		startLiveTimer(new Date());
 		status.value = await getStatus(userId.value);
 	} catch (e) {
 		error.value = e?.response?.data?.message ?? e?.message ?? 'Fejl';
@@ -169,6 +225,7 @@ async function onGaaet() {
 	busy.value = true;
 	try {
 		await gaaet();
+		stopLiveTimer();
 		status.value = await getStatus(userId.value);
 	} catch (e) {
 		error.value = e?.response?.data?.message ?? e?.message ?? 'Fejl';
@@ -222,6 +279,7 @@ async function onPauseStart() {
 	busy.value = true;
 	try {
 		await pauseStart();
+		startLiveTimer(new Date());
 		status.value = await getStatus(userId.value);
 	} catch (e) {
 		error.value = e?.response?.data?.message ?? e?.message ?? 'Fejl';
@@ -238,6 +296,7 @@ async function onPauseEnd() {
 	busy.value = true;
 	try {
 		await pauseEnd();
+		startLiveTimer(new Date());
 		status.value = await getStatus(userId.value);
 	} catch (e) {
 		error.value = e?.response?.data?.message ?? e?.message ?? 'Fejl';
@@ -285,10 +344,27 @@ onMounted(async () => {
 						{{ new Date(status.at).toLocaleString('da-DK') }}
 					</span>
 					<span class="time" v-else>-</span>
+					<span class="updated" v-if="lastUpdatedAt">
+						Opdateret:
+						{{
+							lastUpdatedAt.toLocaleTimeString('da-DK', {
+								hour: '2-digit',
+								minute: '2-digit',
+								second: '2-digit',
+							})
+						}}
+					</span>
+					<span class="timer" v-if="liveSeconds > 0">
+						Tid: {{ formatDuration(liveSeconds) }}
+					</span>
 				</div>
+				<p v-if="isCompanyAdmin" class="adminHint">
+					Medarbejder-registrering. Se dagens overblik under
+					<strong>Dagens status</strong>.
+				</p>
 			</div>
 
-			<div class="actions">
+			<div v-if="isEmployee" class="actions">
 				<button
 					class="btn primary"
 					@click="onMoedt"
@@ -525,15 +601,23 @@ h2 {
 }
 
 @media (max-width: 900px) {
-	.actions {
-		grid-template-columns: 1fr 1fr;
-	}
-	.statusBox {
-		align-items: flex-start;
-		min-width: auto;
-	}
 	.header {
 		flex-direction: column;
+	}
+
+	.statusBox {
+		align-items: flex-start;
+		width: 100%;
+	}
+
+	.actions {
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+
+	.btn {
+		padding: 14px 12px;
+		font-size: 14px;
 	}
 }
 
@@ -559,5 +643,32 @@ h2 {
 .value {
 	color: #111827;
 	font-weight: 800;
+}
+
+.updated {
+	color: #6b7280;
+	font-size: 12px;
+	font-weight: 600;
+}
+.timer {
+	color: #111827;
+	font-size: 14px;
+	font-weight: 800;
+}
+
+.adminNote {
+	margin: 12px 0 0 0;
+	padding: 12px 14px;
+	border-radius: 12px;
+	background: #f4f6f8;
+	border: 1px solid #d0d7de;
+	color: #111827;
+	font-weight: 600;
+}
+
+.adminHint {
+	margin-top: 8px;
+	color: #6b7280;
+	font-size: 13px;
 }
 </style>
