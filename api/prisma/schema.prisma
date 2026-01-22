@@ -42,8 +42,8 @@ model User {
 	@@index([companyId, isDepartmentLeader])
 	@@index([managerId])
 
-	companyId String
-	company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+	companyId String?
+	company   Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
 	createdAt DateTime @default(now())
 	updatedAt DateTime @updatedAt

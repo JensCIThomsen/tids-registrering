@@ -1,64 +1,69 @@
 import {
-  Body,
-  Controller,
-  Post,
-  BadRequestException,
-  Get,
-  Param,
+	BadRequestException,
+	Controller,
+	Delete,
+	ForbiddenException,
+	Param,
+	Post,
+	Req,
+	UseGuards,
+	Body,
 } from '@nestjs/common';
-import { AdminService } from './admin.service';
 
-type CreateCompanyBody = {
-  companyName?: string;
-  adminEmail?: string;
-  adminPassword?: string;
+import { AdminService } from './admin.service';
+import { JwtGuard } from '../auth/jwt.guard';
+
+type JwtUser = {
+	sub: string;
+	role: 'COMPANY_ADMIN' | 'EMPLOYEE' | 'SUPERADMIN';
+	companyId?: string | null;
 };
 
 type CreateEmployeeBody = {
-  companyId?: string;
-  email?: string;
-  password?: string;
+	companyId?: string;
+	email?: string;
+	password?: string;
 };
 
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+	constructor(private readonly adminService: AdminService) {}
 
-  @Post('create-company')
-  async createCompany(@Body() body: CreateCompanyBody) {
-    const companyName = (body.companyName ?? '').trim();
-    const adminEmail = (body.adminEmail ?? '').trim().toLowerCase();
-    const adminPassword = body.adminPassword ?? '';
+	@Post('create-employee')
+	async createEmployee(@Body() body: CreateEmployeeBody) {
+		const companyId = (body.companyId ?? '').trim();
+		const email = (body.email ?? '').trim().toLowerCase();
+		const password = body.password ?? '';
 
-    if (!companyName) throw new BadRequestException('companyName mangler');
-    if (!adminEmail) throw new BadRequestException('adminEmail mangler');
-    if (!adminPassword) throw new BadRequestException('adminPassword mangler');
+		if (!companyId) throw new BadRequestException('companyId mangler');
+		if (!email) throw new BadRequestException('email mangler');
+		if (!password) throw new BadRequestException('password mangler');
 
-    return await this.adminService.createCompany(
-      companyName,
-      adminEmail,
-      adminPassword,
-    );
-  }
+		return await this.adminService.createEmployee(
+			companyId,
+			email,
+			password,
+		);
+	}
 
-  @Post('create-employee')
-  async createEmployee(@Body() body: CreateEmployeeBody) {
-    const companyId = (body.companyId ?? '').trim();
-    const email = (body.email ?? '').trim().toLowerCase();
-    const password = body.password ?? '';
+	@UseGuards(JwtGuard)
+	@Delete('users/:userId')
+	async deleteUser(
+		@Req() req: { user?: JwtUser },
+		@Param('userId') userId: string,
+	) {
+		const jwtUser = req.user;
 
-    if (!companyId) throw new BadRequestException('companyId mangler');
-    if (!email) throw new BadRequestException('email mangler');
-    if (!password) throw new BadRequestException('password mangler');
+		if (
+			!jwtUser ||
+			jwtUser.role !== 'COMPANY_ADMIN' ||
+			!jwtUser.companyId
+		) {
+			throw new ForbiddenException(
+				'Kun COMPANY_ADMIN kan slette brugere',
+			);
+		}
 
-    return await this.adminService.createEmployee(companyId, email, password);
-  }
-
-  @Get('employees/:companyId')
-  async getEmployees(@Param('companyId') companyId: string) {
-    const id = (companyId ?? '').trim();
-    if (!id) throw new BadRequestException('companyId mangler');
-
-    return await this.adminService.getEmployees(id);
-  }
+		return await this.adminService.deleteUser(jwtUser.companyId, userId);
+	}
 }

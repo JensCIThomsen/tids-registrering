@@ -76,6 +76,15 @@ async function onLogout() {
 						:class="{ active: isActive('/admin') }"
 						to="/admin"
 					>
+						Super Admin
+					</router-link>
+
+					<router-link
+						v-if="isLoggedIn && role === 'COMPANY_ADMIN'"
+						class="pill"
+						:class="{ active: isActive('/admin') }"
+						to="/admin"
+					>
 						Admin
 					</router-link>
 				</div>

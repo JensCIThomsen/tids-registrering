@@ -408,6 +408,36 @@ export class AttendanceController {
 	}
 
 	@UseGuards(JwtGuard)
+	@Get('employees')
+	async getEmployees(@Req() req: Request) {
+		const jwtUser = (req as Request & { user: JwtPayload }).user;
+
+		if (jwtUser.role !== 'COMPANY_ADMIN') {
+			throw new ForbiddenException('Kun COMPANY_ADMIN kan se employees');
+		}
+
+		return this.prisma.user.findMany({
+			where: { companyId: jwtUser.companyId },
+			select: {
+				id: true,
+				email: true,
+				name: true,
+				role: true,
+				isDepartmentLeader: true,
+				managerId: true,
+				manager: {
+					select: {
+						id: true,
+						email: true,
+						name: true,
+					},
+				},
+			},
+			orderBy: { email: 'asc' },
+		});
+	}
+
+	@UseGuards(JwtGuard)
 	@Post('employees/:userId/manager')
 	async setEmployeeManager(
 		@Param('userId') userId: string,
