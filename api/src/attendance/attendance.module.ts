@@ -1,16 +1,10 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { PrismaService } from '../prisma/prisma.service';
 import { AttendanceController } from './attendance.controller';
-import { JwtGuard } from '../auth/jwt.guard';
+import { PrismaModule } from '../prisma/prisma.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-	imports: [
-		JwtModule.register({
-			secret: 'dev-secret-change-later',
-		}),
-	],
+	imports: [PrismaModule, AuthModule],
 	controllers: [AttendanceController],
-	providers: [PrismaService, JwtGuard],
 })
 export class AttendanceModule {}

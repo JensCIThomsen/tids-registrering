@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 
 const KEY = 'tdtr_session';
 
@@ -11,13 +11,12 @@ function loadSession() {
 }
 
 export const session = ref(loadSession());
-export const isLoggedIn = ref(!!session.value);
+export const isLoggedIn = computed(() => !!session.value?.accessToken);
 
 function save(s) {
 	session.value = s;
 	if (s) localStorage.setItem(KEY, JSON.stringify(s));
 	else localStorage.removeItem(KEY);
-	isLoggedIn.value = !!s;
 }
 
 // Gem både token + user

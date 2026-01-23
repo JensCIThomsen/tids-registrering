@@ -37,8 +37,12 @@ async function onLogin() {
 		}
 
 		setAuth(data.accessToken, data.user);
+		//debugger;
 
-		if (data.user.role === 'SUPERADMIN') {
+		if (
+			data.user.role === 'SUPERADMIN' ||
+			data.user.role === 'COMPANY_ADMIN'
+		) {
 			await router.push('/admin');
 		} else {
 			await router.push('/attendance');
@@ -79,6 +83,7 @@ async function onLogin() {
 			/>
 
 			<button
+				type="button"
 				class="btn btn-primary"
 				style="width: 100%; margin-top: 12px"
 				:disabled="loading"
