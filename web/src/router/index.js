@@ -58,6 +58,26 @@ const router = createRouter({
 				roles: ['SUPERADMIN', 'COMPANY_ADMIN'],
 			},
 		},
+
+		{
+			path: '/admin/users/new',
+			name: 'admin-user-new',
+			component: () => import('../views/AdminUserNewView.vue'),
+			meta: {
+				requiresAuth: true,
+				roles: ['SUPERADMIN', 'COMPANY_ADMIN'],
+			},
+		},
+		{
+			path: '/admin/users/:id',
+			name: 'admin-user-edit',
+			component: () => import('../views/AdminUserEditView.vue'),
+
+			meta: {
+				requiresAuth: true,
+				roles: ['SUPERADMIN', 'COMPANY_ADMIN'],
+			},
+		},
 	],
 });
 

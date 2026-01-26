@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import logo from '../assets/logo-full.svg';
 import { setAuth } from '../services/auth';
+import { apiFetch } from '../services/api';
 
 const router = useRouter();
 
@@ -11,14 +12,12 @@ const password = ref('');
 const error = ref('');
 const loading = ref(false);
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-
 async function onLogin() {
 	error.value = '';
 	loading.value = true;
 
 	try {
-		const res = await fetch(`${apiBaseUrl}/auth/login`, {
+		const res = await apiFetch('/auth/login', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',

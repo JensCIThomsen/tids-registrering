@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { session } from '../services/auth';
+import { useRouter } from 'vue-router';
+import { apiFetch } from '../services/api';
 
 const role = computed(() => session.value?.role || null);
 const isCompanyAdmin = computed(() => role.value === 'COMPANY_ADMIN');
@@ -8,8 +10,22 @@ const isCompanyAdmin = computed(() => role.value === 'COMPANY_ADMIN');
 const loading = ref(false);
 const error = ref('');
 const users = ref([]);
-const newEmail = ref('');
-const newPassword = ref('secret123');
+const router = useRouter();
+
+async function readErrorMessage(res) {
+	const txt = await res.text().catch(() => '');
+	if (!txt) return `HTTP ${res.status}`;
+
+	try {
+		const j = JSON.parse(txt);
+		if (j && typeof j.message === 'string') return j.message;
+		if (j && Array.isArray(j.message)) return j.message.join(', ');
+	} catch {
+		// ignore
+	}
+
+	return txt;
+}
 
 async function loadUsers() {
 	error.value = '';
@@ -21,15 +37,15 @@ async function loadUsers() {
 			throw new Error('Ingen token i session');
 		}
 
-		const res = await fetch('http://localhost:3000/attendance/employees', {
+		const res = await apiFetch('/attendance/employees', {
 			headers: {
 				Authorization: `Bearer ${token}`,
 			},
 		});
 
 		if (!res.ok) {
-			const txt = await res.text();
-			throw new Error(txt || `HTTP ${res.status}`);
+			const msg = await readErrorMessage(res);
+			throw new Error(msg);
 		}
 
 		const data = await res.json();
@@ -47,48 +63,13 @@ onMounted(() => {
 	}
 });
 
-async function createUser() {
-	error.value = '';
-	loading.value = true;
+function goEditUser(id) {
+	router.push({ name: 'admin-user-edit', params: { id } });
+}
 
-	try {
-		const token = session.value?.accessToken;
-		const companyId = session.value?.companyId;
-
-		if (!token) throw new Error('Ingen token i session');
-		if (!companyId) throw new Error('Ingen companyId i session');
-
-		const email = newEmail.value.trim().toLowerCase();
-		const password = newPassword.value;
-
-		if (!email) throw new Error('Email mangler');
-		if (!password) throw new Error('Password mangler');
-
-		const res = await fetch('http://localhost:3000/admin/create-employee', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${token}`,
-			},
-			body: JSON.stringify({
-				companyId,
-				email,
-				password,
-			}),
-		});
-
-		if (!res.ok) {
-			const txt = await res.text();
-			throw new Error(txt || `HTTP ${res.status}`);
-		}
-
-		newEmail.value = '';
-		await loadUsers();
-	} catch (e) {
-		error.value = e?.message ? String(e.message) : String(e);
-	} finally {
-		loading.value = false;
-	}
+function goCreateUser() {
+	router.push({ name: 'admin-user-new' });
+	// alternativt (samme effekt): router.push('/admin/users/new')
 }
 
 function roleLabel(r) {
@@ -96,6 +77,54 @@ function roleLabel(r) {
 	if (r === 'EMPLOYEE') return 'Employee';
 	if (r === 'SUPERADMIN') return 'Super Admin';
 	return r || '';
+}
+
+async function deleteUser(userId) {
+	error.value = '';
+	loading.value = true;
+
+	try {
+		const token = session.value?.accessToken;
+		if (!token) throw new Error('Ingen token i session');
+
+		const ok = window.confirm('Er du sikker på at du vil slette brugeren?');
+		if (!ok) return;
+
+		const res = await apiFetch(`/admin/users/${userId}`, {
+			method: 'DELETE',
+			headers: {
+				Authorization: `Bearer ${token}`,
+			},
+		});
+
+		if (!res.ok) {
+			const txt = await res.text();
+			try {
+				const j = JSON.parse(txt);
+				throw new Error(j.message || 'Fejl ved sletning');
+			} catch {
+				throw new Error(txt || 'Fejl ved sletning');
+			}
+		}
+
+		await loadUsers();
+	} catch (e) {
+		let msg = e?.message ?? 'Ukendt fejl';
+
+		// hvis backend-fejl er JSON som string → parse og vis kun message
+		if (typeof msg === 'string' && msg.trim().startsWith('{')) {
+			try {
+				const j = JSON.parse(msg);
+				if (j?.message) msg = j.message;
+			} catch {
+				// ignore
+			}
+		}
+
+		error.value = msg;
+	} finally {
+		loading.value = false;
+	}
 }
 </script>
 
@@ -116,46 +145,14 @@ function roleLabel(r) {
 				<button class="pill" style="cursor: pointer" @click="loadUsers">
 					Opdater
 				</button>
-				<div class="card" style="margin-top: 12px">
-					<div
-						style="
-							display: flex;
-							gap: 10px;
-							flex-wrap: wrap;
-							align-items: center;
-						"
-					>
-						<input
-							v-model="newEmail"
-							class="pill"
-							style="
-								min-width: 260px;
-								color: #fff;
-								background: #111;
-							"
-							placeholder="email (fx emp2@test.dk)"
-						/>
 
-						<input
-							v-model="newPassword"
-							class="pill"
-							style="
-								min-width: 180px;
-								color: #fff;
-								background: #111;
-							"
-							placeholder="password"
-						/>
-
-						<button
-							class="pill"
-							style="cursor: pointer"
-							@click="createUser"
-						>
-							Opret bruger
-						</button>
-					</div>
-				</div>
+				<button
+					class="pill"
+					style="cursor: pointer"
+					@click="goCreateUser"
+				>
+					Opret bruger
+				</button>
 
 				<span v-if="loading" class="muted" style="font-size: 13px">
 					Henter...
@@ -206,6 +203,15 @@ function roleLabel(r) {
 							>
 								Leder
 							</th>
+							<th
+								style="
+									text-align: left;
+									padding: 8px;
+									border-bottom: 1px solid #333;
+								"
+							>
+								Handling
+							</th>
 						</tr>
 					</thead>
 
@@ -249,6 +255,28 @@ function roleLabel(r) {
 									u.manager.email
 								}}</span>
 								<span v-else class="muted">—</span>
+							</td>
+							<td
+								style="
+									padding: 8px;
+									border-bottom: 1px solid #222;
+									white-space: nowrap;
+								"
+							>
+								<button
+									class="pill"
+									style="cursor: pointer"
+									@click="goEditUser(u.id)"
+								>
+									Rediger</button
+								>&nbsp;
+								<button
+									class="pill"
+									style="cursor: pointer"
+									@click="deleteUser(u.id)"
+								>
+									Slet
+								</button>
 							</td>
 						</tr>
 

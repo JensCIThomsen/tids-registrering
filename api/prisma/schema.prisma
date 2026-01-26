@@ -34,6 +34,12 @@ model User {
 	email     String   @unique
 	name      String?
 	role      Role     @default(EMPLOYEE)
+
+	// --- arbejdstid / pause-regel (fast pr. employee) ---
+	weeklyHours			Int			@default(37)	// fx 37 timer/uge
+	breakMinutesPerDay	Int			@default(30)	// fx 30 min middagspause
+	breakIsPaid			Boolean		@default(false)	// false = selvbetalt pause
+
 	isDepartmentLeader	Boolean	@default(false)
 	managerId			String?
 	manager				User?	@relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)

@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "breakIsPaid" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "breakMinutesPerDay" INTEGER NOT NULL DEFAULT 30,
+ADD COLUMN     "weeklyHours" INTEGER NOT NULL DEFAULT 37;

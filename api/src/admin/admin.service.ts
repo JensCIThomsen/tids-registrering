@@ -110,6 +110,40 @@ export class AdminService {
 	}
 
 	async deleteUser(companyId: string, userId: string) {
+		const u = await this.prisma.user.findFirst({
+			where: {
+				id: userId,
+				companyId,
+			},
+			select: {
+				id: true,
+				isDepartmentLeader: true,
+			},
+		});
+
+		if (!u) {
+			throw new BadRequestException('Bruger ikke fundet');
+		}
+
+		if (u.isDepartmentLeader) {
+			throw new BadRequestException(
+				'Brugeren kan ikke slettes, fordi den er afdelingsleder. Fjern afdelingsleder først.',
+			);
+		}
+
+		const dependentsCount = await this.prisma.user.count({
+			where: {
+				companyId,
+				managerId: userId,
+			},
+		});
+
+		if (dependentsCount > 0) {
+			throw new BadRequestException(
+				`Brugeren kan ikke slettes, fordi den er leder for ${dependentsCount} bruger(e). Fjern lederrollen/tilknytninger først.`,
+			);
+		}
+
 		const target = await this.prisma.user.findFirst({
 			where: { id: userId, companyId },
 			select: { id: true, role: true },
@@ -126,5 +160,105 @@ export class AdminService {
 		await this.prisma.user.delete({ where: { id: userId } });
 
 		return { ok: true };
+	}
+
+	async createUser(
+		companyId: string,
+		email: string,
+		password: string,
+		name: string | null,
+		role: Role,
+	) {
+		const company = await this.prisma.company.findUnique({
+			where: { id: companyId },
+			select: { id: true },
+		});
+
+		if (!company) {
+			throw new BadRequestException('companyId findes ikke');
+		}
+
+		const existing = await this.prisma.user.findUnique({
+			where: { email },
+			select: { id: true },
+		});
+
+		if (existing) {
+			throw new ConflictException('Email findes allerede');
+		}
+
+		// ekstra sikkerhed (så ingen kan oprette SUPERADMIN her)
+		if (role === Role.SUPERADMIN) {
+			throw new ForbiddenException('Kan ikke oprette SUPERADMIN her');
+		}
+
+		const passwordHash = await bcrypt.hash(password, 10);
+
+		const user = await this.prisma.user.create({
+			data: {
+				email,
+				name,
+				passwordHash,
+				role,
+				companyId: company.id,
+			},
+			select: {
+				id: true,
+				email: true,
+				name: true,
+				role: true,
+				companyId: true,
+			},
+		});
+
+		return { ok: true, user };
+	}
+
+	async getUser(companyId: string, userId: string) {
+		return await this.prisma.user.findFirst({
+			where: {
+				id: userId,
+				companyId,
+			},
+			select: {
+				id: true,
+				email: true,
+				name: true,
+				isDepartmentLeader: true,
+				managerId: true,
+
+				weeklyHours: true,
+				breakMinutesPerDay: true,
+				breakIsPaid: true,
+			},
+		});
+	}
+
+	async updateUser(
+		companyId: string,
+		userId: string,
+		name: string | null,
+		isDepartmentLeader: boolean,
+		managerId: string | null,
+		weeklyHours?: number,
+		breakMinutesPerDay?: number,
+		breakIsPaid?: boolean,
+	) {
+		return await this.prisma.user.updateMany({
+			where: {
+				id: userId,
+				companyId,
+			},
+			data: {
+				name,
+				isDepartmentLeader,
+				managerId,
+				...(weeklyHours !== undefined ? { weeklyHours } : {}),
+				...(breakMinutesPerDay !== undefined
+					? { breakMinutesPerDay }
+					: {}),
+				...(breakIsPaid !== undefined ? { breakIsPaid } : {}),
+			},
+		});
 	}
 }
