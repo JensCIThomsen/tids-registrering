@@ -14,17 +14,15 @@ const router = useRouter();
 
 async function readErrorMessage(res) {
 	const txt = await res.text().catch(() => '');
-	if (!txt) return `HTTP ${res.status}`;
 
 	try {
-		const j = JSON.parse(txt);
-		if (j && typeof j.message === 'string') return j.message;
-		if (j && Array.isArray(j.message)) return j.message.join(', ');
+		const json = JSON.parse(txt);
+		if (json?.message) return String(json.message);
 	} catch {
 		// ignore
 	}
 
-	return txt;
+	return txt || 'Ukendt fejl';
 }
 
 async function loadUsers() {
@@ -34,7 +32,8 @@ async function loadUsers() {
 	try {
 		const token = session.value?.accessToken;
 		if (!token) {
-			throw new Error('Ingen token i session');
+			error.value = 'Du er ikke logget ind';
+			return;
 		}
 
 		const res = await apiFetch('/attendance/employees', {
@@ -49,48 +48,38 @@ async function loadUsers() {
 		}
 
 		const data = await res.json();
-		users.value = data.filter((u) => u.role !== 'COMPANY_ADMIN');
+
+		// ✅ RETTELSE: API svarer { users: [...] }, ikke en array direkte
+		users.value = (data?.users || []).filter(
+			(u) => u.role !== 'COMPANY_ADMIN',
+		);
 	} catch (e) {
-		error.value = e?.message ? String(e.message) : String(e);
+		error.value = e?.message || 'Kunne ikke hente brugere';
+		users.value = [];
 	} finally {
 		loading.value = false;
 	}
 }
 
-onMounted(() => {
-	if (isCompanyAdmin.value) {
-		loadUsers();
-	}
-});
-
-function goEditUser(id) {
-	router.push({ name: 'admin-user-edit', params: { id } });
+function goNew() {
+	router.push('/admin/users/new');
 }
 
-function goCreateUser() {
-	router.push({ name: 'admin-user-new' });
-	// alternativt (samme effekt): router.push('/admin/users/new')
+function goEdit(id) {
+	router.push(`/admin/users/${id}`);
 }
 
-function roleLabel(r) {
-	if (r === 'COMPANY_ADMIN') return 'Company Admin';
-	if (r === 'EMPLOYEE') return 'Employee';
-	if (r === 'SUPERADMIN') return 'Super Admin';
-	return r || '';
-}
-
-async function deleteUser(userId) {
+async function deleteUser(id) {
 	error.value = '';
-	loading.value = true;
 
 	try {
 		const token = session.value?.accessToken;
-		if (!token) throw new Error('Ingen token i session');
+		if (!token) {
+			error.value = 'Du er ikke logget ind';
+			return;
+		}
 
-		const ok = window.confirm('Er du sikker på at du vil slette brugeren?');
-		if (!ok) return;
-
-		const res = await apiFetch(`/admin/users/${userId}`, {
+		const res = await apiFetch(`/admin/users/${id}`, {
 			method: 'DELETE',
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -98,59 +87,47 @@ async function deleteUser(userId) {
 		});
 
 		if (!res.ok) {
-			const txt = await res.text();
-			try {
-				const j = JSON.parse(txt);
-				throw new Error(j.message || 'Fejl ved sletning');
-			} catch {
-				throw new Error(txt || 'Fejl ved sletning');
-			}
+			const msg = await readErrorMessage(res);
+			throw new Error(msg);
 		}
 
 		await loadUsers();
 	} catch (e) {
-		let msg = e?.message ?? 'Ukendt fejl';
-
-		// hvis backend-fejl er JSON som string → parse og vis kun message
-		if (typeof msg === 'string' && msg.trim().startsWith('{')) {
-			try {
-				const j = JSON.parse(msg);
-				if (j?.message) msg = j.message;
-			} catch {
-				// ignore
-			}
-		}
-
-		error.value = msg;
-	} finally {
-		loading.value = false;
+		error.value = e?.message || 'Kunne ikke slette bruger';
 	}
 }
+
+onMounted(() => {
+	if (!isCompanyAdmin.value) return;
+	loadUsers();
+});
 </script>
 
 <template>
 	<div class="card">
-		<h1 style="margin: 0 0 12px 0">Admin</h1>
+		<h1 style="margin: 0 0 6px 0">Admin</h1>
+		<p class="muted" style="margin: 0 0 16px 0">
+			Brugere i din virksomhed (read-only)
+		</p>
 
-		<div v-if="!isCompanyAdmin">
-			<p>Ingen adgang.</p>
+		<div v-if="!isCompanyAdmin" class="muted">
+			Du har ikke adgang til denne side
 		</div>
 
 		<div v-else>
-			<p class="muted" style="margin-top: 0">
-				Brugere i din virksomhed (read-only)
-			</p>
-
-			<div style="display: flex; gap: 10px; align-items: center">
+			<div
+				style="
+					display: flex;
+					gap: 10px;
+					align-items: center;
+					flex-wrap: wrap;
+				"
+			>
 				<button class="pill" style="cursor: pointer" @click="loadUsers">
 					Opdater
 				</button>
 
-				<button
-					class="pill"
-					style="cursor: pointer"
-					@click="goCreateUser"
-				>
+				<button class="pill" style="cursor: pointer" @click="goNew">
 					Opret bruger
 				</button>
 
@@ -167,49 +144,19 @@ async function deleteUser(userId) {
 				<table style="width: 100%; border-collapse: collapse">
 					<thead>
 						<tr>
-							<th
-								style="
-									text-align: left;
-									padding: 8px;
-									border-bottom: 1px solid #333;
-								"
-							>
+							<th style="text-align: left; padding: 8px 10px">
 								Email
 							</th>
-							<th
-								style="
-									text-align: left;
-									padding: 8px;
-									border-bottom: 1px solid #333;
-								"
-							>
+							<th style="text-align: left; padding: 8px 10px">
 								Rolle
 							</th>
-							<th
-								style="
-									text-align: left;
-									padding: 8px;
-									border-bottom: 1px solid #333;
-								"
-							>
+							<th style="text-align: left; padding: 8px 10px">
 								Afdelingsleder
 							</th>
-							<th
-								style="
-									text-align: left;
-									padding: 8px;
-									border-bottom: 1px solid #333;
-								"
-							>
+							<th style="text-align: left; padding: 8px 10px">
 								Leder
 							</th>
-							<th
-								style="
-									text-align: left;
-									padding: 8px;
-									border-bottom: 1px solid #333;
-								"
-							>
+							<th style="text-align: left; padding: 8px 10px">
 								Handling
 							</th>
 						</tr>
@@ -217,59 +164,29 @@ async function deleteUser(userId) {
 
 					<tbody>
 						<tr v-for="u in users" :key="u.id">
-							<td
-								style="
-									padding: 8px;
-									border-bottom: 1px solid #222;
-								"
-							>
-								{{ u.email }}
+							<td style="padding: 8px 10px">{{ u.email }}</td>
+							<td style="padding: 8px 10px">{{ u.role }}</td>
+							<td style="padding: 8px 10px">
+								{{ u.isDepartmentLeader ? 'Ja' : 'Nej' }}
 							</td>
-
-							<td
-								style="
-									padding: 8px;
-									border-bottom: 1px solid #222;
-								"
-							>
-								{{ roleLabel(u.role) }}
-							</td>
-
-							<td
-								style="
-									padding: 8px;
-									border-bottom: 1px solid #222;
-								"
-							>
-								<span v-if="u.isDepartmentLeader">Ja</span>
-								<span v-else class="muted">Nej</span>
-							</td>
-
-							<td
-								style="
-									padding: 8px;
-									border-bottom: 1px solid #222;
-								"
-							>
-								<span v-if="u.manager?.email">{{
-									u.manager.email
-								}}</span>
-								<span v-else class="muted">—</span>
+							<td style="padding: 8px 10px">
+								{{ u.managerId ? 'Ja' : '-' }}
 							</td>
 							<td
 								style="
-									padding: 8px;
-									border-bottom: 1px solid #222;
-									white-space: nowrap;
+									padding: 8px 10px;
+									display: flex;
+									gap: 10px;
 								"
 							>
 								<button
 									class="pill"
 									style="cursor: pointer"
-									@click="goEditUser(u.id)"
+									@click="goEdit(u.id)"
 								>
-									Rediger</button
-								>&nbsp;
+									Rediger
+								</button>
+
 								<button
 									class="pill"
 									style="cursor: pointer"

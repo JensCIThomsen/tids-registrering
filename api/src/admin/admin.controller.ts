@@ -16,7 +16,6 @@ import {
 import { AdminService } from './admin.service';
 import { JwtGuard } from '../auth/jwt.guard';
 import { Role } from '@prisma/client';
-//import { Not } from '../../generated/prisma/internal/prismaNamespace';
 
 type JwtUser = {
 	sub: string;
@@ -36,6 +35,15 @@ type CreateUserBody = {
 	password?: string;
 	name?: string;
 	role?: 'EMPLOYEE' | 'COMPANY_ADMIN';
+
+	// leder / afdelingsleder
+	isDepartmentLeader?: boolean;
+	managerId?: string | null;
+
+	// arbejdsregler
+	weeklyHours?: number | string;
+	breakMinutesPerDay?: number | string;
+	breakIsPaid?: boolean;
 };
 
 @Controller('admin')
@@ -113,12 +121,50 @@ export class AdminController {
 			throw new ForbiddenException('Ingen adgang');
 		}
 
+		const toIntOrUndefined = (v: unknown) => {
+			if (v === undefined || v === null) return undefined;
+			if (typeof v === 'number')
+				return Number.isFinite(v) ? Math.trunc(v) : undefined;
+			if (typeof v === 'string') {
+				const t = v.trim();
+				if (!t) return undefined;
+				const n = Number(t);
+				return Number.isFinite(n) ? Math.trunc(n) : undefined;
+			}
+			return undefined;
+		};
+
+		const isDepartmentLeader = !!body.isDepartmentLeader;
+		const managerId = body.managerId ?? null;
+
+		if (isDepartmentLeader && managerId) {
+			throw new BadRequestException(
+				'Afdelingsleder kan ikke have en leder',
+			);
+		}
+
+		const weeklyHours = toIntOrUndefined(body.weeklyHours);
+		const breakMinutesPerDay = toIntOrUndefined(body.breakMinutesPerDay);
+		const breakIsPaid = body.breakIsPaid;
+
+		if (weeklyHours !== undefined && weeklyHours < 0) {
+			throw new BadRequestException('weeklyHours skal være >= 0');
+		}
+		if (breakMinutesPerDay !== undefined && breakMinutesPerDay < 0) {
+			throw new BadRequestException('breakMinutesPerDay skal være >= 0');
+		}
+
 		return await this.adminService.createUser(
 			companyId,
 			email,
 			password,
 			name || null,
 			role === 'COMPANY_ADMIN' ? Role.COMPANY_ADMIN : Role.EMPLOYEE,
+			isDepartmentLeader,
+			managerId,
+			weeklyHours,
+			breakMinutesPerDay,
+			breakIsPaid,
 		);
 	}
 
@@ -195,9 +241,8 @@ export class AdminController {
 
 		const toIntOrUndefined = (v: unknown) => {
 			if (v === undefined || v === null) return undefined;
-			if (typeof v === 'number') {
+			if (typeof v === 'number')
 				return Number.isFinite(v) ? Math.trunc(v) : undefined;
-			}
 			if (typeof v === 'string') {
 				const t = v.trim();
 				if (!t) return undefined;

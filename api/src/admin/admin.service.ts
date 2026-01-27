@@ -168,6 +168,11 @@ export class AdminService {
 		password: string,
 		name: string | null,
 		role: Role,
+		isDepartmentLeader: boolean,
+		managerId: string | null,
+		weeklyHours?: number,
+		breakMinutesPerDay?: number,
+		breakIsPaid?: boolean,
 	) {
 		const company = await this.prisma.company.findUnique({
 			where: { id: companyId },
@@ -192,6 +197,29 @@ export class AdminService {
 			throw new ForbiddenException('Kan ikke oprette SUPERADMIN her');
 		}
 
+		if (isDepartmentLeader && managerId) {
+			throw new BadRequestException(
+				'Afdelingsleder kan ikke have en leder',
+			);
+		}
+
+		// hvis managerId er sat: skal være en EMPLOYEE i samme virksomhed og være afdelingsleder
+		if (managerId) {
+			const manager = await this.prisma.user.findFirst({
+				where: {
+					id: managerId,
+					companyId,
+					role: Role.EMPLOYEE,
+					isDepartmentLeader: true,
+				},
+				select: { id: true },
+			});
+
+			if (!manager) {
+				throw new BadRequestException('Ugyldig leder');
+			}
+		}
+
 		const passwordHash = await bcrypt.hash(password, 10);
 
 		const user = await this.prisma.user.create({
@@ -201,6 +229,15 @@ export class AdminService {
 				passwordHash,
 				role,
 				companyId: company.id,
+
+				isDepartmentLeader,
+				managerId,
+
+				...(weeklyHours !== undefined ? { weeklyHours } : {}),
+				...(breakMinutesPerDay !== undefined
+					? { breakMinutesPerDay }
+					: {}),
+				...(breakIsPaid !== undefined ? { breakIsPaid } : {}),
 			},
 			select: {
 				id: true,

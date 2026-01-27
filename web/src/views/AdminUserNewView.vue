@@ -1,153 +1,132 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { session } from '../services/auth';
 import { apiFetch } from '../services/api';
+import { session } from '../services/auth';
 
 const router = useRouter();
+
+const loading = ref(false);
+const errorMsg = ref('');
 
 const email = ref('');
 const password = ref('');
 const name = ref('');
 
-const selectedRole = ref('EMPLOYEE');
-const isDepartmentLeader = ref(false);
-const managerId = ref('');
-
-const loading = ref(false);
-const errorMsg = ref('');
-
-const role = computed(() => session.value?.role ?? null);
-const accessToken = computed(() => session.value?.accessToken ?? '');
-const companyId = computed(() => session.value?.companyId ?? '');
+// virksomhed
+const companyId = ref('');
 const companyName = ref('');
 
-const isCompanyAdmin = computed(() => role.value === 'COMPANY_ADMIN');
+// leder/afdelingsleder
+const isDepartmentLeader = ref(false);
+const managerId = ref('');
+const employees = ref([]);
 
-const roleToCreate = computed(() => {
-	// regler: COMPANY_ADMIN kan kun oprette EMPLOYEE
-	if (isCompanyAdmin.value) return 'EMPLOYEE';
-	return selectedRole.value;
-});
-
-const managers = ref([]);
 const leaderOptions = computed(() => {
-	return managers.value.filter((m) => m.isDepartmentLeader);
+	// kun afdelingsledere
+	return employees.value.filter((u) => u.isDepartmentLeader);
 });
 
 watch(isDepartmentLeader, (v) => {
+	// afdelingsleder kan ikke have en leder
 	if (v) managerId.value = '';
 });
 
-onMounted(async () => {
-	if (!isCompanyAdmin.value) {
-		router.replace('/admin');
-		return;
-	}
+// arbejdsregler (defaults)
+const weeklyHours = ref('37');
+const breakMinutesPerDay = ref('30');
+const breakIsPaid = ref(false);
 
+onMounted(async () => {
 	await loadCompany();
-	await loadManagers();
+	await loadEmployees();
 });
 
 async function loadCompany() {
-	try {
-		const token = accessToken.value;
-		if (!token) return;
-
-		const res = await apiFetch('/attendance/company', {
-			headers: {
-				Authorization: `Bearer ${token}`,
-			},
-		});
-
-		if (!res.ok) {
-			const txt = await res.text().catch(() => '');
-			errorMsg.value =
-				txt || `Kunne ikke hente virksomhed (HTTP ${res.status})`;
-			return;
-		}
-
-		const data = await res.json();
-		companyName.value = data?.name ? String(data.name) : '';
-	} catch {
-		// ignorer
-	}
-}
-
-async function loadManagers() {
-	try {
-		const token = accessToken.value;
-		if (!token) return;
-
-		const res = await apiFetch('/attendance/employees', {
-			headers: {
-				Authorization: `Bearer ${token}`,
-			},
-		});
-
-		if (!res.ok) {
-			return;
-		}
-
-		const data = await res.json();
-
-		managers.value = (Array.isArray(data) ? data : [])
-			.filter((u) => u && u.id)
-			.map((u) => ({
-				id: u.id,
-				email: u.email,
-				name: u.name,
-				isDepartmentLeader: !!u.isDepartmentLeader,
-			}));
-	} catch {
-		// ignorer stille her
-	}
-}
-
-async function submit() {
 	errorMsg.value = '';
 
-	if (!email.value.trim() || !password.value.trim() || !name.value.trim()) {
-		errorMsg.value = 'Udfyld email, password og navn';
-		return;
-	}
-
-	if (!accessToken.value) {
-		errorMsg.value = 'Ingen token i session';
-		return;
-	}
-
-	if (!companyId.value) {
-		errorMsg.value = 'Ingen companyId i session';
-		return;
-	}
-
-	loading.value = true;
 	try {
-		const payload = {
-			email: email.value.trim().toLowerCase(),
-			password: password.value,
-			name: name.value.trim(),
-			role: roleToCreate.value,
-			companyId: companyId.value,
+		const token = session.value?.accessToken;
+		if (!token) {
+			errorMsg.value = 'Du er ikke logget ind';
+			return;
+		}
 
-			isDepartmentLeader: isDepartmentLeader.value,
-			managerId: managerId.value || null,
-		};
-
-		const res = await apiFetch('/admin/create-user', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${accessToken.value}`,
-			},
-			body: JSON.stringify(payload),
+		const res = await apiFetch('/attendance/company', {
+			headers: { Authorization: `Bearer ${token}` },
 		});
 
 		const data = await res.json().catch(() => ({}));
 
 		if (!res.ok) {
-			errorMsg.value = data?.message ?? 'Kunne ikke oprette bruger';
+			errorMsg.value =
+				data?.message ??
+				`Kunne ikke hente virksomhed (HTTP ${res.status})`;
+			return;
+		}
+
+		companyId.value = data?.company?.id || '';
+		companyName.value = data?.company?.name || '';
+	} catch (e) {
+		errorMsg.value = e?.message ? String(e.message) : 'Netværksfejl';
+	}
+}
+
+async function loadEmployees() {
+	try {
+		const token = session.value?.accessToken;
+		if (!token) return;
+
+		const res = await apiFetch('/attendance/employees', {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+
+		const data = await res.json().catch(() => ({}));
+
+		if (!res.ok) {
+			return;
+		}
+
+		employees.value = Array.isArray(data?.users) ? data.users : [];
+	} catch {
+		employees.value = [];
+	}
+}
+
+async function save() {
+	errorMsg.value = '';
+	loading.value = true;
+
+	try {
+		const token = session.value?.accessToken;
+		if (!token) throw new Error('Ingen token i session');
+
+		const res = await apiFetch('/admin/create-user', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${token}`,
+			},
+			body: JSON.stringify({
+				email: email.value.trim(),
+				password: password.value,
+				name: name.value.trim(),
+				role: 'EMPLOYEE',
+				companyId: companyId.value,
+
+				isDepartmentLeader: isDepartmentLeader.value,
+				managerId: managerId.value || null,
+
+				weeklyHours: weeklyHours.value,
+				breakMinutesPerDay: breakMinutesPerDay.value,
+				breakIsPaid: breakIsPaid.value,
+			}),
+		});
+
+		const data = await res.json().catch(() => ({}));
+
+		if (!res.ok) {
+			errorMsg.value = data?.message ?? `Kunne ikke oprette bruger`;
 			return;
 		}
 
@@ -168,112 +147,100 @@ function cancel() {
 	<div class="card">
 		<h1 style="margin: 0 0 12px 0">Opret bruger</h1>
 
-		<p class="muted" style="margin-top: 0">
-			Virksomhed sættes automatisk til din egen.
-		</p>
-
 		<div
 			v-if="errorMsg"
-			style="font-size: 13px; color: #ffb4b4; margin: 8px 0"
+			style="font-size: 13px; color: #ffb4b4; margin-bottom: 10px"
 		>
 			{{ errorMsg }}
 		</div>
 
 		<form
-			@submit.prevent="submit"
-			style="display: grid; gap: 12px; max-width: 520px"
+			@submit.prevent="save"
+			style="display: grid; gap: 14px; max-width: 520px"
 		>
 			<label style="display: grid; gap: 6px">
-				<span style="font-weight: 600; font-size: 14px">Email</span>
-				<input v-model="email" type="email" autocomplete="email" />
+				<span style="font-weight: 600">Email</span>
+				<input v-model="email" required />
 			</label>
 
 			<label style="display: grid; gap: 6px">
-				<span style="font-weight: 600; font-size: 14px">Password</span>
-				<input
-					v-model="password"
-					type="password"
-					autocomplete="new-password"
-				/>
+				<span style="font-weight: 600">Adgangskode</span>
+				<input v-model="password" type="password" required />
 			</label>
 
 			<label style="display: grid; gap: 6px">
-				<span style="font-weight: 600; font-size: 14px">Navn</span>
-				<input v-model="name" type="text" autocomplete="name" />
+				<span style="font-weight: 600">Navn</span>
+				<input v-model="name" />
 			</label>
 
-			<label v-if="!isCompanyAdmin" style="display: grid; gap: 6px">
-				<span style="font-weight: 600; font-size: 14px">Rolle</span>
-				<select v-model="selectedRole">
-					<option value="EMPLOYEE">EMPLOYEE</option>
-					<option value="COMPANY_ADMIN">COMPANY_ADMIN</option>
-				</select>
+			<label style="display: grid; gap: 6px">
+				<span style="font-weight: 600">Virksomhed</span>
+				<input :value="companyName" disabled />
 			</label>
 
-			<label v-else style="display: grid; gap: 6px">
-				<span style="font-weight: 600; font-size: 14px">Rolle</span>
-				<input value="EMPLOYEE" type="text" disabled />
-			</label>
+			<hr
+				style="
+					border: 0;
+					border-top: 1px solid rgba(255, 255, 255, 0.12);
+				"
+			/>
+
+			<h2 style="margin: 0; font-size: 16px">Leder</h2>
 
 			<label style="display: flex; gap: 10px; align-items: center">
 				<input v-model="isDepartmentLeader" type="checkbox" />
-				<span style="font-weight: 600; font-size: 14px"
-					>Afdelingsleder</span
-				>
+				<span style="font-weight: 600">Afdelingsleder</span>
 			</label>
 
 			<label style="display: grid; gap: 6px">
-				<span style="font-weight: 600; font-size: 14px">Leder</span>
-
-				<p
-					v-if="leaderOptions.length === 0"
-					class="muted"
-					style="margin: 0; font-size: 13px"
-				>
-					Ingen afdelingsledere endnu – du kan oprette en først.
-				</p>
-
+				<span style="font-weight: 600">Leder</span>
 				<select v-model="managerId" :disabled="isDepartmentLeader">
-					<option value="">— ingen —</option>
+					<option value="">Ingen</option>
 					<option
-						v-for="m in leaderOptions"
-						:key="m.id"
-						:value="m.id"
+						v-for="u in leaderOptions"
+						:key="u.id"
+						:value="u.id"
 					>
-						{{ m.email }}<span v-if="m.name"> ({{ m.name }})</span
-						><span v-if="m.isDepartmentLeader"> [leder]</span>
+						{{ u.name || u.email }}
 					</option>
 				</select>
 
-				<p
-					v-if="isDepartmentLeader"
-					class="muted"
-					style="margin: 0; font-size: 13px"
-				>
+				<p v-if="isDepartmentLeader" class="muted" style="margin: 0">
 					Afdelingsleder kan ikke have en leder.
 				</p>
 			</label>
 
+			<hr
+				style="
+					border: 0;
+					border-top: 1px solid rgba(255, 255, 255, 0.12);
+				"
+			/>
+
+			<h2 style="margin: 0; font-size: 16px">Arbejdsregler</h2>
+
 			<label style="display: grid; gap: 6px">
-				<span style="font-weight: 600; font-size: 14px"
-					>Virksomhed</span
-				>
-				<input :value="companyName || companyId" type="text" disabled />
+				<span style="font-weight: 600">Timer pr. uge</span>
+				<input v-model="weeklyHours" inputmode="numeric" />
 			</label>
 
-			<div style="display: flex; gap: 10px; align-items: center">
-				<button
-					class="pill"
-					style="cursor: pointer"
-					type="submit"
-					:disabled="loading"
-				>
-					{{ loading ? 'Opretter...' : 'Opret' }}
+			<label style="display: grid; gap: 6px">
+				<span style="font-weight: 600">Middagspause pr. dag (min)</span>
+				<input v-model="breakMinutesPerDay" inputmode="numeric" />
+			</label>
+
+			<label style="display: flex; gap: 10px; align-items: center">
+				<input v-model="breakIsPaid" type="checkbox" />
+				<span style="font-weight: 600">Pausen er betalt</span>
+			</label>
+
+			<div style="display: flex; gap: 10px; margin-top: 8px">
+				<button class="pill" type="submit" :disabled="loading">
+					{{ loading ? 'Opretter...' : 'Opret bruger' }}
 				</button>
 
 				<button
 					class="pill"
-					style="cursor: pointer"
 					type="button"
 					@click="cancel"
 					:disabled="loading"
@@ -293,21 +260,9 @@ select {
 	border: 1px solid #555;
 	background: #fff;
 	color: #000;
-	outline: none;
-}
-
-input:focus,
-select:focus {
-	border-color: #9ecbff;
-	box-shadow: 0 0 0 2px rgba(158, 203, 255, 0.35);
 }
 
 .muted {
 	opacity: 0.75;
-}
-
-select:disabled {
-	opacity: 0.6;
-	cursor: not-allowed;
 }
 </style>

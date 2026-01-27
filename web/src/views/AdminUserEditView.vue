@@ -22,7 +22,13 @@ const name = ref('');
 const isDepartmentLeader = ref(false);
 const managerId = ref('');
 
+// nye felter (arbejdsregler)
+const weeklyHours = ref('37');
+const breakMinutesPerDay = ref('30');
+const breakIsPaid = ref(false);
+
 const managers = ref([]);
+
 const leaderOptions = computed(() => {
 	return managers.value.filter(
 		(m) => m.isDepartmentLeader && m.id !== userId.value,
@@ -46,7 +52,7 @@ onMounted(async () => {
 async function loadManagers() {
 	try {
 		const token = accessToken.value;
-		if (!token) return;
+		if (!token) throw new Error('Ingen token i session');
 
 		const res = await apiFetch('/attendance/employees', {
 			headers: {
@@ -54,20 +60,21 @@ async function loadManagers() {
 			},
 		});
 
-		if (!res.ok) return;
+		const data = await res.json().catch(() => ({}));
 
-		const data = await res.json();
+		if (!res.ok) {
+			errorMsg.value =
+				data?.message ??
+				`Kunne ikke hente employees (HTTP ${res.status})`;
+			managers.value = [];
+			return;
+		}
 
-		managers.value = (Array.isArray(data) ? data : [])
-			.filter((u) => u && u.id)
-			.map((u) => ({
-				id: u.id,
-				email: u.email,
-				name: u.name,
-				isDepartmentLeader: !!u.isDepartmentLeader,
-			}));
-	} catch {
-		// ignorer
+		// endpoint returnerer { users: [...] }
+		managers.value = Array.isArray(data?.users) ? data.users : [];
+	} catch (e) {
+		errorMsg.value = e?.message ? String(e.message) : 'Netværksfejl';
+		managers.value = [];
 	}
 }
 
@@ -97,6 +104,19 @@ async function loadUser() {
 		name.value = data?.name ? String(data.name) : '';
 		isDepartmentLeader.value = !!data?.isDepartmentLeader;
 		managerId.value = data?.managerId ? String(data.managerId) : '';
+
+		weeklyHours.value =
+			data?.weeklyHours !== undefined && data?.weeklyHours !== null
+				? String(data.weeklyHours)
+				: '37';
+
+		breakMinutesPerDay.value =
+			data?.breakMinutesPerDay !== undefined &&
+			data?.breakMinutesPerDay !== null
+				? String(data.breakMinutesPerDay)
+				: '30';
+
+		breakIsPaid.value = !!data?.breakIsPaid;
 	} catch (e) {
 		errorMsg.value = e?.message ? String(e.message) : 'Netværksfejl';
 	} finally {
@@ -122,6 +142,10 @@ async function save() {
 				name: name.value.trim(),
 				isDepartmentLeader: isDepartmentLeader.value,
 				managerId: managerId.value || null,
+
+				weeklyHours: weeklyHours.value,
+				breakMinutesPerDay: breakMinutesPerDay.value,
+				breakIsPaid: breakIsPaid.value,
 			}),
 		});
 
@@ -166,16 +190,16 @@ function cancel() {
 		<form
 			v-if="!loading"
 			@submit.prevent="save"
-			style="display: grid; gap: 12px; max-width: 520px"
+			style="display: grid; gap: 14px; max-width: 520px"
 		>
 			<label style="display: grid; gap: 6px">
 				<span style="font-weight: 600; font-size: 14px">Email</span>
-				<input v-model="email" type="text" disabled />
+				<input v-model="email" disabled />
 			</label>
 
 			<label style="display: grid; gap: 6px">
 				<span style="font-weight: 600; font-size: 14px">Navn</span>
-				<input v-model="name" type="text" autocomplete="name" />
+				<input v-model="name" />
 			</label>
 
 			<label style="display: flex; gap: 10px; align-items: center">
@@ -191,32 +215,66 @@ function cancel() {
 				<p
 					v-if="leaderOptions.length === 0"
 					class="muted"
-					style="margin: 0; font-size: 13px"
+					style="margin: 0"
 				>
-					Ingen afdelingsledere endnu – du kan oprette en først.
+					Ingen afdelingsledere fundet
 				</p>
 
 				<select v-model="managerId" :disabled="isDepartmentLeader">
-					<option value="">— ingen —</option>
+					<option value="">Ingen</option>
 					<option
 						v-for="m in leaderOptions"
 						:key="m.id"
 						:value="m.id"
 					>
-						{{ m.email }}<span v-if="m.name"> ({{ m.name }})</span>
+						{{ m.name || m.email }}
 					</option>
 				</select>
 
-				<p
-					v-if="isDepartmentLeader"
-					class="muted"
-					style="margin: 0; font-size: 13px"
-				>
+				<p v-if="isDepartmentLeader" class="muted" style="margin: 0">
 					Afdelingsleder kan ikke have en leder.
 				</p>
 			</label>
 
-			<div style="display: flex; gap: 10px; align-items: center">
+			<hr
+				style="
+					border: 0;
+					border-top: 1px solid rgba(255, 255, 255, 0.12);
+				"
+			/>
+
+			<h2 style="margin: 0; font-size: 16px">Arbejdsregler</h2>
+
+			<label style="display: grid; gap: 6px">
+				<span style="font-weight: 600; font-size: 14px"
+					>Timer pr. uge</span
+				>
+				<input
+					v-model="weeklyHours"
+					inputmode="numeric"
+					placeholder="37"
+				/>
+			</label>
+
+			<label style="display: grid; gap: 6px">
+				<span style="font-weight: 600; font-size: 14px"
+					>Middagspause pr. dag (min)</span
+				>
+				<input
+					v-model="breakMinutesPerDay"
+					inputmode="numeric"
+					placeholder="30"
+				/>
+			</label>
+
+			<label style="display: flex; gap: 10px; align-items: center">
+				<input v-model="breakIsPaid" type="checkbox" />
+				<span style="font-weight: 600; font-size: 14px"
+					>Pausen er betalt</span
+				>
+			</label>
+
+			<div style="display: flex; gap: 10px; margin-top: 6px">
 				<button
 					class="pill"
 					style="cursor: pointer"
