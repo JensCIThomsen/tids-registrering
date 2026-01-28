@@ -5,6 +5,7 @@ import LoginView from '../views/LoginView.vue';
 import AdminView from '../views/AdminView.vue';
 import CompanyAdminView from '../views/CompanyAdminView.vue';
 import CompanyTodayView from '../views/CompanyTodayView.vue';
+import CompanyWeekView from '../views/CompanyWeekView.vue';
 
 import { session, logout } from '../services/auth';
 
@@ -46,6 +47,13 @@ const router = createRouter({
 			path: '/company-today',
 			name: 'company-today',
 			component: CompanyTodayView,
+			meta: { requiresAuth: true, roles: ['COMPANY_ADMIN'] },
+		},
+
+		{
+			path: '/week',
+			name: 'company-week',
+			component: CompanyWeekView,
 			meta: { requiresAuth: true, roles: ['COMPANY_ADMIN'] },
 		},
 

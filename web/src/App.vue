@@ -31,7 +31,7 @@ async function onLogout() {
 					/>
 				</div>
 
-				<div class="navlinks">
+				<div class="nav">
 					<router-link
 						class="pill"
 						:class="{ active: isActive('/') }"
@@ -61,6 +61,16 @@ async function onLogout() {
 						I dag
 					</router-link>
 
+					<!-- NYT menupunkt -->
+					<router-link
+						v-if="isLoggedIn && role === 'COMPANY_ADMIN'"
+						class="pill"
+						:class="{ active: isActive('/week') }"
+						to="/week"
+					>
+						Uge
+					</router-link>
+
 					<router-link
 						v-if="isLoggedIn && role === 'SUPERADMIN'"
 						class="pill"
@@ -85,21 +95,15 @@ async function onLogout() {
 				<div v-if="!isLoggedIn">
 					<router-link
 						class="pill"
+						style="cursor: pointer"
 						:class="{ active: isActive('/login') }"
 						to="/login"
 					>
-						Login
+						Log ind
 					</router-link>
 				</div>
 
-				<div
-					v-else
-					style="display: flex; gap: 10px; align-items: center"
-				>
-					<span class="muted" style="font-size: 13px">
-						{{ session?.email }} ({{ role }})
-					</span>
-
+				<div v-else>
 					<button
 						class="pill"
 						style="cursor: pointer"
